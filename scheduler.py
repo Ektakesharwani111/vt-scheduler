@@ -5,6 +5,7 @@ import pyomo.environ as pe
 import pyomo.gdp as pyogdp
 import os
 import logging
+from amplpy import modules
 import psycopg2
 
 from configparser import ConfigParser
@@ -195,12 +196,12 @@ class classScheduler:
                     for c in model.DAYS:
                         for d in model.COURSES:
 
-                            if b != model.SESSIONS.first():
+                            # if b != model.SESSIONS.first():
 
-                                obj = sum(model.PRFI[e,d] * model.SELECTION[a, b, c, d] * sum(
-                                    model.SELECTION[a1, b - 1, c, d] * model.DIST[a, a1] for a1 in model.CLASSROOMS )for e in model.PROFS)
-                            else:
-                                obj = sum(model.PRFI[e,d] * model.SELECTION[a, b, c, d] * model.DISTOFF[e,a] for e in model.PROFS)
+                            #     obj = sum(model.PRFI[e,d] * model.SELECTION[a, b, c, d] * sum(
+                            #         model.SELECTION[a1, b - 1, c, d] * model.DIST[a, a1] for a1 in model.CLASSROOMS )for e in model.PROFS)
+                            # else:
+                            obj = sum(model.PRFI[e,d] * model.SELECTION[a, b, c, d] * model.DISTOFF[e,a] for e in model.PROFS)
             return obj
         model.OBJECTIVE = pe.Objective(rule=objective_function, sense=pe.minimize )
         # print(model.OBJECTIVE.pprint())
@@ -246,7 +247,8 @@ class classScheduler:
                 solver.options[key] = value
 
         if local:
-            solver_results = solver.solve(self.model, tee=True)
+            solver = pe.SolverFactory("bonminnl",executable=modules.find("bonmin"),solver_io="nl")
+            solver_results = solver.solve(self.model, tee=True,options=options)
         else:
             solver_manager = pe.SolverManagerFactory("neos")
             solver_results = solver_manager.solve(self.model, opt='bonmin')
@@ -255,8 +257,8 @@ class classScheduler:
         #self.df_times = pd.DataFrame(results)
 
 
+        prf = pd.DataFrame(columns=["professor_id", "course_id", "day", "start_time", "classroom_id"])
         for a in self.model.PROFS:
-            prf = pd.DataFrame(columns=["professor_id", "course_id", "day", "start_time", "classroom_id"])
             for d in self.model.COURSES:
                 if self.model.PRFI[a, d] == 1:
                     for c in self.model.DAYS:
@@ -290,8 +292,8 @@ if __name__ == "__main__":
     #cbc_path = "C:\\Users\\LONLW15\\Documents\\Linear Programming\\Solvers\\cbc.exe"
     solver_path = "/Users/shubham/Bonmin-0.99.2-mac-osx-ix86-gcc4.0.1/bin/bonmin"
 
-    options = {"seconds": 300}
+    options = {"maxit":10,"tol":1}
     scheduler = classScheduler()
     #scheduler.solve(solver_name="cbc", solver_path=cbc_path, options=options)
-    scheduler.solve(solver_name="bonmin", local=False, options=options, solver_path=solver_path)
+    scheduler.solve(solver_name="bonmin", local=True, options=options)
     #scheduler.solve(model,opt="bonmin")
