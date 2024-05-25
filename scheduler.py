@@ -1,5 +1,4 @@
 import random
-
 import pandas as pd
 import pyomo.environ as pe
 import pyomo.gdp as pyogdp
@@ -12,49 +11,42 @@ from configparser import ConfigParser
 from db_config import PostgresConnector
 
 
-
+#Create aa=n account in neos and give the email id here in case the optimizer needs to be run in Neos
 os.environ['NEOS_EMAIL'] = 'mailshubhamk@gmail.com'
 
-pd.options.display.width= None
-pd.options.display.max_columns= None
-pd.set_option('display.max_rows', 50)
-pd.set_option('display.max_columns', 15)
-
-
-
+logging.basicConfig(format='%(asctime)s - %(message)s',level=logging.INFO)
 
 ##TODO Index all the dataframes
 class classScheduler:
 
     def __init__(self):
         """
-        Read the input data required for running the scheduler
-        Args:
-            prof_file_path (str): path to professor data in CSV format
-            class_file_path (str): path to class data in CSV format
+        Read the input data required for running the scheduler from the database
+        Update the database credentials in config.ini file
         """
         self.postgres_connector = PostgresConnector()
+        logging.info("Scheduler: Connecting to postgres db.....")
         self.postgres_tables=self.postgres_connector.connect_to_postgres()
+        logging.info("Scheduler: Connection established")
         self.tables_dataframes = {}
         tables_names_req=['professors','courses','professor_course_allocations','classroom']
         for table_name in tables_names_req:
             if table_name in self.postgres_tables:
                 #print(table_name)
                 self.tables_dataframes[table_name]=self.postgres_tables[table_name]
+                logging.info("Scheduler: Table "+table_name+' read successfully')
                 #print(self.tables_dataframes[table_name])
             else:
              print(table_name+' table not found')
+             logging.error("Scheduler:"+table_name+'not read')
 
         self.df_prof=self.tables_dataframes['professors']
-        print(self.df_prof)
-
+        #print(self.df_prof)
         self.df_courses=self.tables_dataframes['courses']
         self.df_courses["contact_hours"]=pd.to_numeric(self.df_courses["contact_hours"])
-        print(self.df_courses)
-        print(self.df_courses.dtypes)
-
+        #print(self.df_courses)
         self.df_class = self.tables_dataframes['classroom']
-        print(self.df_class)
+        #print(self.df_class)
 
 
         logging.info("Scheduler: Input files read successfully")
@@ -72,10 +64,9 @@ class classScheduler:
                 else:
                     dist[cls,cls2]=0
 
-        print('Distance btw classes')
-        print(dist)
+        logging.info("Scheduler: Distance between classes computed successfully")
         return dist
-            #TODO Make it actual distance
+        #TODO Make it actual distance
 
     #The distance between classroom and prof's office
     def distance_btw_classoff(self):
@@ -83,13 +74,11 @@ class classScheduler:
         for prof in self.df_prof['id']:
             for cls in self.df_class['id']:
                 disto[prof,cls]=random.randint(1,5)
-        print('Distance btw office and classes')
-        print(disto)
+        logging.info("Scheduler: Distance between classes and offices computed successfully")
         return disto
 
     # Binary matrix to identify courses taken by a Prof
     def prof_courses(self):
-
         prof_sel=dict()
         course_alloc=self.tables_dataframes['professor_course_allocations'].copy()
         course_alloc.set_index('course_id',inplace=True)
@@ -99,7 +88,7 @@ class classScheduler:
                     prof_sel[prof, course] = 1
                 else:
                     prof_sel[prof, course] = 0
-        print(prof_sel)
+        logging.info("Scheduler: Prof course mapping matrix computed successfully")
         return prof_sel
 
 
@@ -113,12 +102,12 @@ class classScheduler:
         return pd.Series(self.df_class["capacity"].values, index=self.df_class["id"]).to_dict()
 
     def stu_enrl(self):
-        print(pd.Series(self.tables_dataframes['professor_course_allocations']['maximum_students'].values, index=self.df_courses["id"]).to_dict())
+        #print(pd.Series(self.tables_dataframes['professor_course_allocations']['maximum_students'].values, index=self.df_courses["id"]).to_dict())
         return pd.Series(self.tables_dataframes['professor_course_allocations']['maximum_students'].values, index=self.df_courses["id"]).to_dict()
 
     def create_model(self):
         model = pe.ConcreteModel()
-
+        logging.info("Scheduler: Concrete Pyomo model instance created")
         # Model Data
 
 
@@ -228,10 +217,10 @@ class classScheduler:
             return sum(model.SELECTION[room,sessio,day,course] for sessio in model.SESSIONS)<=2
         model.SESSION_CONS=pe.Constraint(model.CLASSROOMS, model.DAYS,model.COURSES, rule=sess_consec)
 
+        #BigM tranformation
         pe.TransformationFactory("gdp.bigm").apply_to(model)
-        model.SESSION_CONS.pprint()
-
-
+        logging.info("Scheduler: Model trnaformed to linear using BigM")
+        #model.SESSION_CONS.pprint()
         return model
 
     def solve(self, solver_name, options=None, solver_path=None, local=True):
@@ -239,19 +228,20 @@ class classScheduler:
         if solver_path is not None:
             solver = pe.SolverFactory(solver_name, executable=solver_path,tee=True)
         else:
-            solver = pe.SolverFactory(solver_name,tee=True)
-
-
+            solver = pe.SolverFactory(solver_name+"nl",executable=modules.find(solver_name),solver_io="nl")        
+        logging.info("Scheduler: Solver:"+solver_name+" found for solving")
+        
         if options is not None:
             for key, value in options.items():
                 solver.options[key] = value
 
         if local:
-            solver = pe.SolverFactory("bonminnl",executable=modules.find("bonmin"),solver_io="nl")
             solver_results = solver.solve(self.model, tee=True,options=options)
+            logging.info("Scheduler: Problem solved using local solver instance")
         else:
             solver_manager = pe.SolverManagerFactory("neos")
-            solver_results = solver_manager.solve(self.model, opt='bonmin')
+            solver_results = solver_manager.solve(self.model, opt=solver_name)
+            logging.info("Scheduler: Problem sent to neos server to be solved using :"+solver_name)
 
         results = [[[a,b,c,d],self.model.SELECTION[a,b,c,d].value] for a in self.model.CLASSROOMS for b in self.model.SESSIONS for c in self.model.DAYS for d in self.model.COURSES ]
         #self.df_times = pd.DataFrame(results)
@@ -279,21 +269,13 @@ class classScheduler:
 
         #Write the result to table for each class
         self.postgres_connector.write_dataframe_to_postgres(prf,'professor_course_schedules')
+        logging.info("Scheduler: Results written to db successfully")
 
 
 
 if __name__ == "__main__":
-
-
-    # # Call the function to connect to PostgreSQL and fetch tables as DataFrames
-    # prof_path = os.path.join(os.path.dirname(os.getcwd()), "data", "profs.csv")
-    # class_path = os.path.join(os.path.dirname(os.getcwd()), "data", "classroom.csv")
-    # course_path = os.path.join(os.path.dirname(os.getcwd()), "data", "courses.csv")
-    #cbc_path = "C:\\Users\\LONLW15\\Documents\\Linear Programming\\Solvers\\cbc.exe"
-    solver_path = "/Users/shubham/Bonmin-0.99.2-mac-osx-ix86-gcc4.0.1/bin/bonmin"
-
+    #Provide solver options
     options = {"maxit":10,"tol":1}
     scheduler = classScheduler()
-    #scheduler.solve(solver_name="cbc", solver_path=cbc_path, options=options)
     scheduler.solve(solver_name="bonmin", local=True, options=options)
-    #scheduler.solve(model,opt="bonmin")
+
