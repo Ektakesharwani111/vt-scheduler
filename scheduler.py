@@ -29,7 +29,7 @@ class classScheduler:
         self.postgres_tables=self.postgres_connector.connect_to_postgres()
         logging.info("Scheduler: Connection established")
         self.tables_dataframes = {}
-        tables_names_req=['professors','courses','professor_course_allocations','classroom']
+        tables_names_req=['professors','courses','professor_course_allocations','classroom','availability']
         for table_name in tables_names_req:
             if table_name in self.postgres_tables:
                 #print(table_name)
@@ -47,6 +47,8 @@ class classScheduler:
         #print(self.df_courses)
         self.df_class = self.tables_dataframes['classroom']
         #print(self.df_class)
+        self.df_availability=self.tables_dataframes['availability']
+
 
 
         logging.info("Scheduler: Input files read successfully")
@@ -117,7 +119,7 @@ class classScheduler:
         # Number of sessions per day
         model.SESSIONS = pe.Set(initialize=[1,2,3,4,5,6,7])
         # The days of the week available for scheduling sessions
-        model.DAYS = pe.Set(initialize=['Mon','Tue','Wed','Thu','Fri'])
+        model.DAYS = pe.Set(initialize=['Monday','Tuesday','Wednesday','Thursday','Friday'])
         # The set of professors
         model.PROFS = pe.Set(initialize=self.df_prof["id"].tolist())
         # The set of courses available in that sem
@@ -147,6 +149,20 @@ class classScheduler:
         #Variable declarations:
         #The selection variable:
         model.SELECTION = pe.Var(model.CLASSROOMS,model.SESSIONS,model.DAYS,model.COURSES,domain=pe.Binary )
+
+
+        def fix_selection_variables(model, df):
+            for index, row in df.iterrows():
+                classroom = row['classroom_id']
+                session = row['session']
+                day = row['day']
+                course = row['course_id']
+                fix_value = row['condition']
+
+                if fix_value:  # Fix variable if 'FIX' is True
+                    model.SELECTION[classroom, session, day, course].fix(1)  # Fix to 1 for selection
+
+        fix_selection_variables(model, self.df_availability)
 
         #Ensuring only class rooms with sufficient capacity if alloted to courses by fixing variable values:
         # for a in model.CLASSROOMS:
