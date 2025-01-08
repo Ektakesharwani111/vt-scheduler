@@ -153,7 +153,7 @@ class classScheduler:
                 if fix_value:  # Fix variable if 'FIX' is True
                     #print('*************')
                     #print(classroom, session, day, course)
-                    model.SELECTION[classroom, session, day, course].fix(0)  # Fix to 0 for non selection
+                    model.SELECTION[classroom, session, day, course].unfix()  # Fix to 0 for non selection
 
         fix_selection_variables(model, self.df_availability)
 
@@ -195,7 +195,6 @@ class classScheduler:
         # A particular course can happen only at a single class at any particular time
         def course_clash(model, course, sessio, day):
             return sum(model.SELECTION[room, sessio, day, course] for room in model.CLASSROOMS) <= 1
-
         model.COURSE_CLASH = pe.Constraint(model.COURSES, model.SESSIONS, model.DAYS, rule=course_clash)
 
         # No more than 2 sessions per day for a course
@@ -205,14 +204,14 @@ class classScheduler:
         model.SESSION_CONS = pe.Constraint(model.CLASSROOMS, model.DAYS, model.COURSES, rule=sess_consec)
 
         # BigM tranformation
-        pe.TransformationFactory("gdp.bigm").apply_to(model)
-        logging.info("Scheduler: Model trnaformed to linear using BigM")
+        #pe.TransformationFactory("gdp.bigm").apply_to(model)
+        #logging.info("Scheduler: Model trnaformed to linear using BigM")
         # model.SESSION_CONS.pprint()
         return model
 
     def preprocess(self):
         # Check classroom availability
-        if self.df_courses['contact_hours'].sum() > self.df_class.shape[0] * len(self.model.SESSIONS) * len(
+        if self.df_courses['contact_hours'].sum() > self.df_class.shape[0] * 2 * len(
                 self.model.DAYS):
             logging.warning('Not enough classrooms available for alloting all the courses')
             logging.warning("There is a deficit of classroom hours of:" + self.df_courses['contact_hours'].sum() -
@@ -237,8 +236,19 @@ class classScheduler:
         print(len(self.df_availability))
         if len(self.df_availability) > 0:
             most_restricted_course = self.df_availability['course_id'].mode()[0]
-            self.df_availability = self.df_availability[self.df_availability['course_id'] != most_restricted_course]
+            logging.warning('Relaxed constraints for course: ' + most_restricted_course)
             self.model = self.create_model()
+            for index, row in self.df_availability.iterrows():
+                classroom = row['classroom_id']
+                session = int(row['session'])
+                day = row['day']
+                course = row['course_id']
+                fix_value = row['condition']
+
+                if course==most_restricted_course:
+                    self.model.SELECTION[classroom, session, day, course].unfix()
+            self.df_availability = self.df_availability[self.df_availability['course_id'] != most_restricted_course]
+
             logging.warning('Relaxed constraints for course: ' + most_restricted_course)
             # Re-solve
             self.solve(solver_name="bonmin", local=True, options=options)
@@ -291,15 +301,16 @@ class classScheduler:
         print(prf)
 
         # Write the result to table for each class
-        self.postgres_connector.write_dataframe_to_postgres(prf, 'professor_course_schedules')
-        logging.info("Scheduler: Results written to db successfully")
+        if solver_results.solver.termination_condition != pe.TerminationCondition.infeasible:
+            self.postgres_connector.write_dataframe_to_postgres(prf, 'professor_course_schedules')
+            logging.info("Scheduler: Results written to db successfully")
 
 
 if __name__ == "__main__":
     # Provide solver options
-    options = {"maxit": 100, "tol": 1}
+    options = {"maxit": 10000, "tol": 1}
     scheduler = classScheduler()
-    scheduler.solve(solver_name="bonmin", local=True, options=options)
+    scheduler.solve(solver_name="cbc", local=True, options=options)
 
 # Ensuring only class rooms with sufficient capacity if alloted to courses by fixing variable values:
 # for a in model.CLASSROOMS:
