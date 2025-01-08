@@ -130,6 +130,8 @@ class classScheduler:
         # Binary parameter to identify courses taken by a Prof:
         # model.PRFI=pe.Param(model.PROFS,model.COURSES, initialize={('SMD',60054):1,('CMD',60056):1,('SMD',60069):1,('SMD',64343):1},default= 0)
         model.PRFI = pe.Param(model.PROFS, model.COURSES, initialize=self.prof_courses())
+        #Max number of classes in   day
+        model.MAXCLA=pe.Param(initialize=2)
 
         # The classroom capacity:
         # print(pd.Series(self.df_class["capacity"].values, index=self.df_class["id"]).to_dict())
@@ -199,7 +201,7 @@ class classScheduler:
 
         # No more than 2 sessions per day for a course
         def sess_consec(model, room, day, course):
-            return sum(model.SELECTION[room, sessio, day, course] for sessio in model.SESSIONS) <= 2
+            return sum(model.SELECTION[room, sessio, day, course] for sessio in model.SESSIONS) <= model.MAXCLA
 
         model.SESSION_CONS = pe.Constraint(model.CLASSROOMS, model.DAYS, model.COURSES, rule=sess_consec)
 
@@ -211,7 +213,7 @@ class classScheduler:
 
     def preprocess(self):
         # Check classroom availability
-        if self.df_courses['contact_hours'].sum() > self.df_class.shape[0] * 2 * len(
+        if self.df_courses['contact_hours'].sum() > self.df_class.shape[0] *self.model.MAXCLA* len(
                 self.model.DAYS):
             logging.warning('Not enough classrooms available for alloting all the courses')
             logging.warning("There is a deficit of classroom hours of:" + self.df_courses['contact_hours'].sum() -
