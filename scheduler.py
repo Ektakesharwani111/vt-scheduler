@@ -6,9 +6,17 @@ import os
 import logging
 from amplpy import modules
 import psycopg2
+import sys
 
 from configparser import ConfigParser
-from db_config import PostgresConnector
+
+# Lazy loading of PostgresConnector
+PostgresConnector = None
+def get_postgres_connector():
+    global PostgresConnector
+    if PostgresConnector is None:
+        from db_config import PostgresConnector
+    return PostgresConnector
 
 # Create aa=n account in neos and give the email id here in case the optimizer needs to be run in Neos
 os.environ['NEOS_EMAIL'] = 'mailshubhamk@gmail.com'
@@ -24,6 +32,8 @@ class classScheduler:
         Read the input data required for running the scheduler from the database
         Update the database credentials in config.ini file
         """
+        get_postgres_connector()
+        logging.info("Scheduler: Initializing classScheduler")
         self.postgres_connector = PostgresConnector()
         logging.info("Scheduler: Connecting to postgres db.....")
         self.postgres_tables = self.postgres_connector.connect_to_postgres()
@@ -243,7 +253,7 @@ class classScheduler:
             # Re-solve
             self.solve(solver_name="bonmin", local=True, options=options)
 
-    def solve(self, solver_name, options=None, solver_path=None, local=True):
+    def solve(self, solver_name, options=None, solver_path=None, local=True, job_id=None, run_id=0):
 
         self.preprocess()
 
@@ -288,6 +298,9 @@ class classScheduler:
             logging.warning("Problem is infeasible. Relaxing professor availability.")
             self.postprocess()
 
+        # Add job_id and run_id to the prf dataframe
+        prf['job_id'] = job_id
+        prf['run_id'] = run_id
         print(prf)
 
         # Write the result to table for each class
@@ -296,10 +309,20 @@ class classScheduler:
 
 
 if __name__ == "__main__":
+    logging.info("Scheduler: Starting scheduler")
+    # Frist command line argument, return error if not provided
+    if len(sys.argv) < 2:
+        logging.error("Scheduler: Job ID not provided")
+        raise SystemExit("Exiting due to missing job ID")
+    job_id = sys.argv[1]
+    # Second command line argument, boolean if previous job rerun, default false
+    run_id = sys.argv[2] if len(sys.argv) > 2 else 0
+
+    logging.info(f"Scheduler: Job ID: {job_id}, Run ID: {run_id}")
     # Provide solver options
     options = {"maxit": 100, "tol": 1}
     scheduler = classScheduler()
-    scheduler.solve(solver_name="bonmin", local=True, options=options)
+    scheduler.solve(solver_name="bonmin", local=True, options=options, job_id=job_id, run_id=run_id)
 
 # Ensuring only class rooms with sufficient capacity if alloted to courses by fixing variable values:
 # for a in model.CLASSROOMS:

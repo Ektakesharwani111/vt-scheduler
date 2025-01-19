@@ -2,6 +2,9 @@ import psycopg2
 from sqlalchemy import create_engine,MetaData
 import pandas as pd
 from configparser import ConfigParser
+import logging
+
+logging.basicConfig(format='%(asctime)s - %(message)s', level=logging.INFO)
 
 class PostgresConnector:
     def __init__(self, config_file='config.ini', section='PostgresConfig'):
@@ -39,13 +42,20 @@ class PostgresConnector:
             # Reflect the database schema
             metadata.reflect(bind=engine)
 
+            logging.info("PostgresConnector: Getting table names")
             # Get a list of table names
             table_names = metadata.tables.keys()
 
+            logging.info(f"PostgresConnector: Table names: {table_names}")
+
             # Iterate through tables and fetch each table as a DataFrame
             for table_name in table_names:
+                logging.info(f"PostgresConnector: Fetching table: {table_name}")
+
+                # Fetch the table as a DataFrame
                 table_df = pd.read_sql_table(table_name, engine)
 
+                logging.info(f"PostgresConnector: Table fetched successfully: {table_name}")
                 # print(f"DataFrame for table '{table_name}':")
                 # print(table_df)
                 # print("\n" + "=" * 50 + "\n")  # Separating different tables
@@ -85,11 +95,17 @@ class PostgresConnector:
         # Dispose the engine to close the connection pool
         engine.dispose()
 
-# Create an instance of PostgresConnector
-postgres_connector = PostgresConnector()
+# logging.info("PostgresConnector: Initializing PostgresConnector")
+# # Create an instance of PostgresConnector
+# postgres_connector = PostgresConnector()
 
-# Call the function to connect to PostgreSQL and fetch tables as a dictionary of DataFrames
-dataframes_dict = postgres_connector.connect_to_postgres()
+# logging.info("PostgresConnector: PostgresConnector initialized")
+# logging.info("PostgresConnector: Connecting to PostgreSQL")
+
+# # Call the function to connect to PostgreSQL and fetch tables as a dictionary of DataFrames
+# dataframes_dict = postgres_connector.connect_to_postgres()
+
+# logging.info("PostgresConnector: Tables fetched successfully")
 
 # Access DataFrames using their table names as keys
 #if 'table_name' in dataframes_dict:
