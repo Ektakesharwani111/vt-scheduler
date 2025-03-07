@@ -39,7 +39,7 @@ class classScheduler:
         self.postgres_tables = self.postgres_connector.connect_to_postgres()
         logging.info("Scheduler: Connection established")
         self.tables_dataframes = {}
-        tables_names_req = ['professors', 'courses', 'professor_course_allocations', 'classroom', 'availability']
+        tables_names_req = ['professors', 'courses', 'professor_course_allocations', 'classroom', 'availability','professor_course_schedules']
         for table_name in tables_names_req:
             if table_name in self.postgres_tables:
                 # print(table_name)
@@ -58,6 +58,9 @@ class classScheduler:
         self.df_class = self.tables_dataframes['classroom']
         # print(self.df_class)
         self.df_availability = self.tables_dataframes['availability']
+        self.df_alloc = self.tables_dataframes['professor_course_schedules']
+
+
 
         logging.info("Scheduler: Input files read successfully")
 
@@ -154,6 +157,7 @@ class classScheduler:
         model.SELECTION = pe.Var(model.CLASSROOMS, model.SESSIONS, model.DAYS, model.COURSES, domain=pe.Binary)
         model.display()
 
+
         def fix_selection_variables(model, df):
             for index, row in df.iterrows():
                 classroom = row['classroom_id']
@@ -161,13 +165,33 @@ class classScheduler:
                 day = row['day']
                 course = row['course_id']
                 fix_value = row['condition']
+                #print('*************')
+                #print(classroom, session, day, course, fix_value)
 
                 if fix_value:  # Fix variable if 'FIX' is True
-                    #print('*************')
-                    #print(classroom, session, day, course)
-                    model.SELECTION[classroom, session, day, course].unfix()  # Fix to 0 for non selection
+
+                    model.SELECTION[classroom, session, day, course].fix(0)  # Fix to 0 for non selection
+
+
+        def fix_selection_variables_previous_run(model, df, job_id_val, run_id_val=0):
+            for index, row in df.iterrows():
+                classroom = row['classroom_id']
+                session = int(row['start_time'])
+                day = row['day']
+                course = row['course_id']
+                job_id = int(row['job_id'])
+                run_id = int(row['run_id'])
+
+
+
+                if job_id==job_id_val and run_id==run_id_val:  # Fix variable if 'FIX' is True
+                    print('*************')
+                    print(classroom, session, day, course, job_id, run_id)
+
+                    model.SELECTION[classroom, session, day, course].fix(1)  # Fix to 0 for non selection
 
         fix_selection_variables(model, self.df_availability)
+        fix_selection_variables_previous_run(model, self.df_alloc,int(job_id),int(run_id))
 
 
         # Objective
